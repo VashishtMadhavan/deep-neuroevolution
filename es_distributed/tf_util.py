@@ -28,7 +28,7 @@ def max(x, axis=None, keepdims=False):
 def min(x, axis=None, keepdims=False):
     return tf.reduce_min(x, reduction_indices=None if axis is None else [axis], keep_dims = keepdims)
 def concatenate(arrs, axis=0):
-    return tf.concat(axis, arrs)
+    return tf.concat(arrs, axis)
 def argmax(x, axis=None):
     return tf.argmax(x, dimension=axis)
 
@@ -218,8 +218,8 @@ def intprod(x):
 
 def flatgrad(loss, var_list):
     grads = tf.gradients(loss, var_list)
-    return tf.concat(0, [tf.reshape(grad, [numel(v)])
-        for (v, grad) in zip(var_list, grads)])
+    return tf.concat([tf.reshape(grad, [numel(v)])
+        for (v, grad) in zip(var_list, grads)], 0)
 
 class SetFromFlat(object):
     def __init__(self, var_list, dtype=tf.float32):
@@ -241,7 +241,7 @@ class SetFromFlat(object):
 
 class GetFlat(object):
     def __init__(self, var_list):
-        self.op = tf.concat(0, [tf.reshape(v, [numel(v)]) for v in var_list])
+        self.op = tf.concat([tf.reshape(v, [numel(v)]) for v in var_list], 0)
     def __call__(self):
         return get_session().run(self.op)
 

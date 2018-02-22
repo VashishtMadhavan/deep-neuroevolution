@@ -186,11 +186,13 @@ def run_master(master_redis_cfg, log_dir, exp):
         raise NotImplementedError(config.episode_cutoff_mode)
 
     episodes_so_far = 0
+    gens_so_far = 0
+    training_gens = 200
     timesteps_so_far = 0
     tstart = time.time()
     master.declare_experiment(exp)
 
-    while True:
+    while gens_so_far <= training_gens:
         step_tstart = time.time()
         theta = policy.get_trainable_flat()
         assert theta.dtype == np.float32
@@ -322,8 +324,9 @@ def run_master(master_redis_cfg, log_dir, exp):
         tlogger.record_tabular("TimeElapsed", step_tend - tstart)
         tlogger.dump_tabular()
 
-        # if config.snapshot_freq != 0 and curr_task_id % config.snapshot_freq == 0:
-        if config.snapshot_freq != 0:
+        gens_so_far += 1
+        if config.snapshot_freq != 0 and curr_task_id % config.snapshot_freq == 0:
+        #if config.snapshot_freq != 0:
             import os.path as osp
             filename = 'snapshot_iter{:05d}_rew{}.h5'.format(
                 curr_task_id,
