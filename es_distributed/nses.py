@@ -3,6 +3,7 @@ import time
 from collections import namedtuple
 import tensorflow as tf
 from copy import deepcopy
+import pdb
 
 import numpy as np
 
@@ -64,7 +65,8 @@ def run_master(master_redis_cfg, log_dir, exp):
     master = MasterClient(master_redis_cfg)
     noise = SharedNoiseTable()
     rs = np.random.RandomState()
-    ref_batch = get_ref_batch(env, batch_size=128)
+    ref_batch = get_ref_batch(env, batch_size=32)
+    archive_batch = np.array(ref_batch)
 
     pop_size = int(exp['novelty_search']['population_size'])
     num_rollouts = int(exp['novelty_search']['num_rollouts'])
@@ -109,9 +111,10 @@ def run_master(master_redis_cfg, log_dir, exp):
 
             if policy.needs_ref_batch:
                 policy.set_ref_batch(ref_batch)
+                policy.set_archive_batch(archive_batch)
 
-            mean_bc = get_mean_bc(env, policy, tslimit_max, num_rollouts)
-            master.add_to_novelty_archive(mean_bc)
+            #mean_bc = get_mean_bc(env, policy, tslimit_max, num_rollouts)
+            #master.add_to_novelty_archive(mean_bc)
 
             theta_dict[p] = theta
             optimizer_dict[p] = optimizer
@@ -138,6 +141,7 @@ def run_master(master_redis_cfg, log_dir, exp):
             ob_mean=ob_stat.mean if policy.needs_ob_stat else None,
             ob_std=ob_stat.std if policy.needs_ob_stat else None,
             ref_batch=ref_batch if policy.needs_ref_batch else None,
+            archive_batch=archive_batch if policy.needs_ref_batch else None,
             timestep_limit=tslimit
         ))
         tlogger.log('********** Iteration {} **********'.format(curr_task_id))
@@ -224,8 +228,14 @@ def run_master(master_redis_cfg, log_dir, exp):
         if policy.needs_ob_stat:
             policy.set_ob_stat(ob_stat.mean, ob_stat.std)
 
-        mean_bc = get_mean_bc(env, policy, tslimit_max, num_rollouts)
-        master.add_to_novelty_archive(mean_bc)
+        if policy.needs_ref_batch:
+            policy.set_ref_batch(ref_batch)
+            policy.set_archive_batch(archive_batch)
+
+        #mean_bc = get_mean_bc(env, policy, tslimit_max, num_rollouts)
+        #master.add_to_novelty_archive(mean_bc)
+        rew, t, frames, nv = policy.rollout(env, timestep_limit=tslimit_max, save_obs=True)
+        archive_batch = np.vstack((archive_batch, frames))
 
         # Update number of steps to take
         if adaptive_tslimit and (lengths_n2 == tslimit).mean() >= incr_tslimit_threshold:
@@ -320,6 +330,7 @@ def run_worker(master_redis_cfg, relay_redis_cfg, noise, *, min_task_runtime=.2)
 
         if policy.needs_ref_batch:
             policy.set_ref_batch(task_data.ref_batch)
+            policy.set_archive_batch(task_data.archive_batch)
 
         if task_id != previous_task_id:
             archive = worker.get_archive()
@@ -353,15 +364,15 @@ def run_worker(master_redis_cfg, relay_redis_cfg, noise, *, min_task_runtime=.2)
                 v = config.noise_stdev * noise.get(noise_idx, policy.num_params)
 
                 policy.set_trainable_flat(task_data.params + v)
-                rews_pos, len_pos, nov_vec_pos = rollout_and_update_ob_stat(
+                rews_pos, len_pos, nov_pos = rollout_and_update_ob_stat(
                     policy, env, task_data.timestep_limit, rs, task_ob_stat, config.calc_obstat_prob)
 
                 policy.set_trainable_flat(task_data.params - v)
-                rews_neg, len_neg, nov_vec_neg = rollout_and_update_ob_stat(
+                rews_neg, len_neg, nov_neg = rollout_and_update_ob_stat(
                     policy, env, task_data.timestep_limit, rs, task_ob_stat, config.calc_obstat_prob)
 
-                nov_pos = compute_novelty_vs_archive(archive, nov_vec_pos, exp['novelty_search']['k'])
-                nov_neg = compute_novelty_vs_archive(archive, nov_vec_neg, exp['novelty_search']['k'])
+                #nov_pos = compute_novelty_vs_archive(archive, nov_vec_pos, exp['novelty_search']['k'])
+                #nov_neg = compute_novelty_vs_archive(archive, nov_vec_neg, exp['novelty_search']['k'])
                 
                 signreturns.append([nov_pos, nov_neg])
                 noise_inds.append(noise_idx)

@@ -16,7 +16,7 @@
     "k": 10,
     "population_size": 3,
     "num_rollouts": 1,
-    "selection_method": "novelty_prob"
+    "selection_method": "round_robin"
   },
   "optimizer": {
     "args": {

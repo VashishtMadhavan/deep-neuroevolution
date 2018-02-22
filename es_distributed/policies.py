@@ -298,8 +298,8 @@ class ESAtariPolicy(Policy):
             o = tf.placeholder(tf.float32, [None] + list(self.ob_space_shape))
             is_ref_ph = tf.placeholder(tf.bool, shape=[])
         
-            a = self._make_net(o, is_ref_ph)
-            self._act = U.function([o, is_ref_ph] , a)
+            a, hid = self._make_net(o, is_ref_ph)
+            self._act = U.function([o, is_ref_ph] , [a, hid])
         return scope
 
     def _make_net(self, o, is_ref):
@@ -311,14 +311,20 @@ class ESAtariPolicy(Policy):
       
         x = layers.flatten(x)
         x = layers.fully_connected(x, num_outputs=256, activation_fn=None, scope='fc')
-        x = layers.batch_norm(x, scale=True, is_training=is_ref, decay=0., updates_collections=None, activation_fn=tf.nn.relu, epsilon=1e-3)
+        fc_bn = layers.batch_norm(x, scale=True, is_training=is_ref, decay=0., updates_collections=None, activation_fn=None, epsilon=1e-3)
+        x = tf.nn.relu(fc_bn)
         a = layers.fully_connected(x, num_outputs=self.num_actions, activation_fn=None, scope='out')
-        return tf.argmax(a,1)
+        return tf.argmax(a,1), fc_bn
 
     def set_ref_batch(self, ref_batch):
         self.ref_list = []
         self.ref_list.append(ref_batch)
         self.ref_list.append(True)
+
+    def set_archive_batch(self, archive_batch):
+        self.archive_ref_list = []
+        self.archive_ref_list.append(archive_batch)
+        self.archive_ref_list.append(True)
 
     @property
     def needs_ob_stat(self):
@@ -358,7 +364,8 @@ class ESAtariPolicy(Policy):
             self.set_all_vars(*init_vals)
 
     def act(self, train_vars, random_stream=None):
-        return self._act(*train_vars)
+        action, hidden = self._act(*train_vars)
+        return action, hidden
 
 
     def rollout(self, env, *, render=False, timestep_limit=None, save_obs=False, random_stream=None, worker_stats=None, policy_seed=None):
@@ -372,8 +379,8 @@ class ESAtariPolicy(Policy):
         rews = []; novelty_vector = []
         t = 0
 
-        if save_obs:
-            obs = []
+        #if save_obs:
+        obs = []
 
         if policy_seed:
             env.seed(policy_seed)
@@ -386,7 +393,7 @@ class ESAtariPolicy(Policy):
 
         for _ in range(timestep_limit):
             start_time = time.time()
-            ac = self.act([ob[None], False], random_stream=random_stream)[0]
+            ac, h_layer = self.act([ob[None], False], random_stream=random_stream)
 
             if worker_stats:
                 worker_stats.time_comp_act += time.time() - start_time
@@ -395,8 +402,9 @@ class ESAtariPolicy(Policy):
             ob, rew, done, info = env.step(ac)
             ram = env.unwrapped._get_ram() # extracts RAM state information
 
-            if save_obs:
-               obs.append(ob)
+            # if save_obs:
+            #    obs.append(ob)
+            obs.append(ob)
             if worker_stats:
                 worker_stats.time_comp_step += time.time() - start_time
 
@@ -410,9 +418,17 @@ class ESAtariPolicy(Policy):
                 break
 
         rews = np.array(rews, dtype=np.float32)
+        self.act(self.archive_ref_list, random_stream=random_stream) #passing ref batch through network
+
+        frames = np.array(obs)
+        _, h_layers = self.act([frames, False], random_stream=random_stream)
+        novelty_score = np.sum(np.linalg.norm(h_layers, axis=1))
+
         if save_obs:
-            return rews, t, np.array(obs), np.array(novelty_vector)
-        return rews, t, np.array(novelty_vector)
+            #return rews, t, np.array(obs), np.array(novelty_vector)
+            return rews, t, np.array(obs), novelty_score
+        #return rews, t, np.array(novelty_vector)
+        return rews, t, novelty_score
 
 
 
