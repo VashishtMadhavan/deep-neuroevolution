@@ -287,7 +287,6 @@ class MujocoPolicy(Policy):
             return rews, t, np.array(obs), novelty_vector
         return rews, t, novelty_vector
 
-
 class ESAtariPolicy(Policy):
     def _initialize(self, ob_space, ac_space):
         self.ob_space_shape = ob_space.shape
@@ -429,6 +428,111 @@ class ESAtariPolicy(Policy):
             return rews, t, np.array(obs), novelty_score
         #return rews, t, np.array(novelty_vector)
         return rews, t, novelty_score
+
+class MazePolicy(Policy):
+    def _initialize(self, ob_space, ac_space):
+        self.ob_space_shape = ob_space.shape
+        self.ac_space = ac_space
+        self.num_actions = ac_space.n
+
+        with tf.variable_scope(type(self).__name__) as scope:
+            o = tf.placeholder(tf.float32, [None] + list(self.ob_space_shape))
+            is_ref_ph = tf.placeholder(tf.bool, shape=[])
+        
+            a, hid = self._make_net(o)
+            self._act = U.function([o] , a)
+        return scope
+
+    def _make_net(self, o):
+        x = o
+        x = layers.fully_connected(x, num_output=256, activation_fn=tf.nn.relu)
+        x = layers.fully_connected(x, num_output=256, activation_fn=tf.nn.relu)
+        a = layers.fully_connected(x, num_outputs=self.num_actions, activation_fn=None, scope='out')
+        return tf.argmax(a,1)
+
+    @property
+    def needs_ob_stat(self):
+        return False
+
+    @property
+    def needs_ref_batch(self):
+        return False
+
+    def initialize_from(self, filename):
+        """
+        Initializes weights from another policy, which must have the same architecture (variable names),
+        but the weight arrays can be smaller than the current policy.
+        """ 
+        with h5py.File(filename, 'r') as f:
+            f_var_names = []
+            f.visititems(lambda name, obj: f_var_names.append(name) if isinstance(obj, h5py.Dataset) else None)
+            assert set(v.name for v in self.all_variables) == set(f_var_names), 'Variable names do not match'
+
+            init_vals = []
+            for v in self.all_variables:
+                shp = v.get_shape().as_list()
+                f_shp = f[v.name].shape
+                assert len(shp) == len(f_shp) and all(a >= b for a, b in zip(shp, f_shp)), \
+                    'This policy must have more weights than the policy to load'
+                init_val = v.eval()
+                # ob_mean and ob_std are initialized with nan, so set them manually
+                if 'ob_mean' in v.name:
+                    init_val[:] = 0
+                    init_mean = init_val
+                elif 'ob_std' in v.name:
+                    init_val[:] = 0.001
+                    init_std = init_val
+                # Fill in subarray from the loaded policy
+                init_val[tuple([np.s_[:s] for s in f_shp])] = f[v.name]
+                init_vals.append(init_val)
+            self.set_all_vars(*init_vals)
+
+    def act(self, train_vars, random_stream=None):
+        action, hidden = self._act(*train_vars)
+        return action, hidden
+
+
+    def rollout(self, env, *, render=False, timestep_limit=None, save_obs=False, random_stream=None, worker_stats=None, policy_seed=None):
+        rews = []; novelty_vector = []
+        t = 0
+
+        if save_obs:
+            obs = []
+
+        if policy_seed:
+            env.seed(policy_seed)
+            np.random.seed(policy_seed)
+            if random_stream:
+                random_stream.seed(policy_seed)
+                
+        ob = env.reset()
+        done = False
+
+        while not done:
+            start_time = time.time()
+            ac = self.act([ob[None]], random_stream=random_stream)
+
+            if worker_stats:
+                worker_stats.time_comp_act += time.time() - start_time
+                
+            start_time = time.time()
+            ob, rew, done, info = env.step(ac)
+
+            if save_obs:
+               obs.append(ob)
+            if worker_stats:
+                worker_stats.time_comp_step += time.time() - start_time
+
+            rews.append(rew)
+            novelty_vector.append(info['achieved_goal'].copy())
+            t += 1
+            if render:
+                env.render()
+
+        rews = np.array(rews, dtype=np.float32)
+        if save_obs:
+            return rews, t, np.array(obs), np.array(novelty_vector)
+        return rews, t, np.array(novelty_vector)
 
 
 

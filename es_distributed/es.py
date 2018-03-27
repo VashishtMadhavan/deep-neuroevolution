@@ -375,7 +375,8 @@ def run_worker(master_redis_cfg, relay_redis_cfg, noise, *, min_task_runtime=.2)
             # Evaluation: noiseless weights and noiseless actions
             policy.set_trainable_flat(task_data.params)
             eval_rews, eval_length, _ = policy.rollout(env, timestep_limit=task_data.timestep_limit)
-            eval_return = eval_rews.sum()
+            #eval_return = eval_rews.sum()
+            eval_return = float(eval_rews[-1])
             logger.info('Eval result: task={} return={:.3f} length={}'.format(task_id, eval_return, eval_length))
             worker.push_result(task_id, Result(
                 worker_id=worker_id,
@@ -408,7 +409,8 @@ def run_worker(master_redis_cfg, relay_redis_cfg, noise, *, min_task_runtime=.2)
     
                 signreturns.append([np.sign(rews_pos).sum(), np.sign(rews_neg).sum()])
                 noise_inds.append(noise_idx)
-                returns.append([rews_pos.sum(), rews_neg.sum()])
+                #returns.append([rews_pos.sum(), rews_neg.sum()])
+                returns.append([float(rews_pos[-1]), float(rews_neg[-1])])
                 lengths.append([len_pos, len_neg])
 
             worker.push_result(task_id, Result(
