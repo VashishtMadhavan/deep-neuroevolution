@@ -21,7 +21,6 @@ Result = namedtuple('Result', [
     'eval_return', 'eval_length',
     'ob_sum', 'ob_sumsq', 'ob_count'
 ])
-training_goals = []
 
 class RunningStat(object):
     def __init__(self, shape, eps):
@@ -189,6 +188,7 @@ def run_master(master_redis_cfg, log_dir, exp):
     episodes_so_far = 0
     gens_so_far = 0
     training_gens = 200
+    training_goals = []
     timesteps_so_far = 0
     tstart = time.time()
     master.declare_experiment(exp)
@@ -283,6 +283,10 @@ def run_master(master_redis_cfg, log_dir, exp):
 
         #updating policy
         policy.set_trainable_flat(theta)
+   
+        #getting training goals
+        roll_rews, roll_len, roll_nov_vec = policy.rollout(env, timestep_limit=None)
+        training_goals.append(roll_nov_vec[-1].copy())
 
         # Update ob stat (we're never running the policy in the master, but we might be snapshotting the policy)
         if policy.needs_ob_stat:
@@ -301,7 +305,7 @@ def run_master(master_redis_cfg, log_dir, exp):
 
         tlogger.record_tabular("EvalEpRewMean", np.nan if not eval_rets else np.mean(eval_rets))
         tlogger.record_tabular("EvalEpRewMedian", np.nan if not eval_rets else np.median(eval_rets))
-        tlogger.record_tabular("EvalGoalDistance", np.linalg.norm(training_goals[-1] - env.goal_pos))
+        tlogger.record_tabular("EvalGoalDistance", np.linalg.norm(training_goals[-1] - env.unwrapped.goal_pos))
         tlogger.record_tabular("EvalEpRewStd", np.nan if not eval_rets else np.std(eval_rets))
         tlogger.record_tabular("EvalEpLenMean", np.nan if not eval_rets else np.mean(eval_lens))
         tlogger.record_tabular("EvalPopRank", np.nan if not eval_rets else (
@@ -379,7 +383,6 @@ def run_worker(master_redis_cfg, relay_redis_cfg, noise, *, min_task_runtime=.2)
             eval_rews, eval_length, eval_nov_vec = policy.rollout(env, timestep_limit=task_data.timestep_limit)
             eval_return = eval_rews.sum()
             #eval_return = float(eval_rews[-1])
-            training_goals.append(eval_nov_vec[-1].copy())
             logger.info('Eval result: task={} return={:.3f} length={}'.format(task_id, eval_return, eval_length))
             worker.push_result(task_id, Result(
                 worker_id=worker_id,
