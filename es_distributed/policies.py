@@ -439,14 +439,14 @@ class MazePolicy(Policy):
             o = tf.placeholder(tf.float32, [None] + list(self.ob_space_shape))
             is_ref_ph = tf.placeholder(tf.bool, shape=[])
         
-            a, hid = self._make_net(o)
+            a = self._make_net(o)
             self._act = U.function([o] , a)
         return scope
 
     def _make_net(self, o):
         x = o
-        x = layers.fully_connected(x, num_output=256, activation_fn=tf.nn.relu)
-        x = layers.fully_connected(x, num_output=256, activation_fn=tf.nn.relu)
+        x = layers.fully_connected(x, num_outputs=256, activation_fn=tf.nn.relu)
+        x = layers.fully_connected(x, num_outputs=256, activation_fn=tf.nn.relu)
         a = layers.fully_connected(x, num_outputs=self.num_actions, activation_fn=None, scope='out')
         return tf.argmax(a,1)
 
@@ -488,8 +488,8 @@ class MazePolicy(Policy):
             self.set_all_vars(*init_vals)
 
     def act(self, train_vars, random_stream=None):
-        action, hidden = self._act(*train_vars)
-        return action, hidden
+        action = self._act(*train_vars)
+        return action
 
 
     def rollout(self, env, *, render=False, timestep_limit=None, save_obs=False, random_stream=None, worker_stats=None, policy_seed=None):
