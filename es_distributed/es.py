@@ -4,7 +4,7 @@ from collections import namedtuple
 
 
 import numpy as np
-
+import pickle
 from .dist import MasterClient, WorkerClient
 
 logger = logging.getLogger(__name__)
@@ -21,7 +21,7 @@ Result = namedtuple('Result', [
     'eval_return', 'eval_length',
     'ob_sum', 'ob_sumsq', 'ob_count'
 ])
-
+training_goals = []
 
 class RunningStat(object):
     def __init__(self, shape, eps):
@@ -301,6 +301,7 @@ def run_master(master_redis_cfg, log_dir, exp):
 
         tlogger.record_tabular("EvalEpRewMean", np.nan if not eval_rets else np.mean(eval_rets))
         tlogger.record_tabular("EvalEpRewMedian", np.nan if not eval_rets else np.median(eval_rets))
+        tlogger.record_tabular("EvalGoalDistance", np.linalg.norm(training_goals[-1] - env.goal_pos))
         tlogger.record_tabular("EvalEpRewStd", np.nan if not eval_rets else np.std(eval_rets))
         tlogger.record_tabular("EvalEpLenMean", np.nan if not eval_rets else np.mean(eval_lens))
         tlogger.record_tabular("EvalPopRank", np.nan if not eval_rets else (
@@ -336,6 +337,7 @@ def run_master(master_redis_cfg, log_dir, exp):
             )
             assert not osp.exists(filename)
             policy.save(filename)
+            pickle.dump(training_goals, open('goals.pkl','wb'))
             tlogger.log('Saved snapshot {}'.format(filename))
 
 
@@ -374,9 +376,10 @@ def run_worker(master_redis_cfg, relay_redis_cfg, noise, *, min_task_runtime=.2)
         if rs.rand() < config.eval_prob:
             # Evaluation: noiseless weights and noiseless actions
             policy.set_trainable_flat(task_data.params)
-            eval_rews, eval_length, _ = policy.rollout(env, timestep_limit=task_data.timestep_limit)
-            #eval_return = eval_rews.sum()
-            eval_return = float(eval_rews[-1])
+            eval_rews, eval_length, eval_nov_vec = policy.rollout(env, timestep_limit=task_data.timestep_limit)
+            eval_return = eval_rews.sum()
+            #eval_return = float(eval_rews[-1])
+            training_goals.append(eval_nov_vec[-1].copy())
             logger.info('Eval result: task={} return={:.3f} length={}'.format(task_id, eval_return, eval_length))
             worker.push_result(task_id, Result(
                 worker_id=worker_id,
@@ -409,8 +412,8 @@ def run_worker(master_redis_cfg, relay_redis_cfg, noise, *, min_task_runtime=.2)
     
                 signreturns.append([np.sign(rews_pos).sum(), np.sign(rews_neg).sum()])
                 noise_inds.append(noise_idx)
-                #returns.append([rews_pos.sum(), rews_neg.sum()])
-                returns.append([float(rews_pos[-1]), float(rews_neg[-1])])
+                returns.append([rews_pos.sum(), rews_neg.sum()])
+                #returns.append([float(rews_pos[-1]), float(rews_neg[-1])])
                 lengths.append([len_pos, len_neg])
 
             worker.push_result(task_id, Result(
