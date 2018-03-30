@@ -1,6 +1,7 @@
 import logging
 import time
 from collections import namedtuple
+import csv
 
 
 import numpy as np
@@ -188,6 +189,8 @@ def run_master(master_redis_cfg, log_dir, exp):
     episodes_so_far = 0
     gens_so_far = 0
     training_gens = 200
+    results_file_name = log_dir + '/results.csv'
+    first_iteration = True
     training_goals = []
     timesteps_so_far = 0
     tstart = time.time()
@@ -299,43 +302,55 @@ def run_master(master_redis_cfg, log_dir, exp):
             logger.info('Increased timestep limit from {} to {}'.format(old_tslimit, tslimit))
 
         step_tend = time.time()
-        tlogger.record_tabular("EpRewMean", returns_n2.mean())
-        tlogger.record_tabular("EpRewStd", returns_n2.std())
-        tlogger.record_tabular("EpLenMean", lengths_n2.mean())
+        recorder_dict = {}
 
-        tlogger.record_tabular("EvalEpRewMean", np.nan if not eval_rets else np.mean(eval_rets))
-        tlogger.record_tabular("EvalEpRewMedian", np.nan if not eval_rets else np.median(eval_rets))
-        #tlogger.record_tabular("EvalGoalDistance", np.linalg.norm(training_goals[-1] - env.unwrapped.goal_pos))
-        tlogger.record_tabular("EvalEpRewStd", np.nan if not eval_rets else np.std(eval_rets))
-        tlogger.record_tabular("EvalEpLenMean", np.nan if not eval_rets else np.mean(eval_lens))
-        tlogger.record_tabular("EvalPopRank", np.nan if not eval_rets else (
-            np.searchsorted(np.sort(returns_n2.ravel()), eval_rets).mean() / returns_n2.size))
-        tlogger.record_tabular("EvalEpCount", len(eval_rets))
+        recorder_dict['EpRewMean'] = returns_n2.mean()
+        recorder_dict['EpRewStd'] = returns_n2.std()
+        recorder_dict['EpLenMean'] = lengths_n2.mean()
 
-        tlogger.record_tabular("Norm", float(np.square(policy.get_trainable_flat()).sum()))
-        tlogger.record_tabular("GradNorm", float(np.square(g).sum()))
-        tlogger.record_tabular("UpdateRatio", float(update_ratio))
+        recorder_dict["EvalEpRewMean"] =  np.nan if not eval_rets else np.mean(eval_rets)
+        recorder_dict["EvalEpRewMedian"] = np.nan if not eval_rets else np.median(eval_rets)
+        recorder_dict['EvalEpRewStd'] = np.nan if not eval_rets else np.std(eval_rets)
+        recorder_dict['EvalEpLenMean'] = np.nan if not eval_rets else np.mean(eval_lens)
+        #recorder_dict["EvalGoalDistance"] = np.linalg.norm(training_goals[-1] - env.unwrapped.goal_pos)
+        recorder_dict["EvalPopRank"] = np.nan if not eval_rets else (np.searchsorted(np.sort(returns_n2.ravel()), eval_rets).mean() / returns_n2.size)
+        recorder_dict["EvalEpCount"] = len(eval_rets)
 
-        tlogger.record_tabular("EpisodesThisIter", lengths_n2.size)
-        tlogger.record_tabular("EpisodesSoFar", episodes_so_far)
-        tlogger.record_tabular("TimestepsThisIter", lengths_n2.sum())
-        tlogger.record_tabular("TimestepsSoFar", timesteps_so_far)
+        recorder_dict["Norm"] = float(np.square(policy.get_trainable_flat()).sum())
+        recorder_dict["GradNorm"] =  float(np.square(g).sum())
+        recorder_dict["UpdateRatio"] = float(update_ratio)
+        recorder_dict["EpisodesThisIter"] =  lengths_n2.size
+        recorder_dict["EpisodesSoFar"] =  episodes_so_far
+        recorder_dict["TimestepsThisIter"] =  lengths_n2.sum()
+        recorder_dict["TimestepsSoFar"] = timesteps_so_far
 
         num_unique_workers = len(set(worker_ids))
-        tlogger.record_tabular("UniqueWorkers", num_unique_workers)
-        tlogger.record_tabular("UniqueWorkersFrac", num_unique_workers / len(worker_ids))
-        tlogger.record_tabular("ResultsSkippedFrac", frac_results_skipped)
-        tlogger.record_tabular("ObCount", ob_count_this_batch)
+        recorder_dict["UniqueWorkers"] = num_unique_workers
+        recorder_dict["UniqueWorkersFrac"] = num_unique_workers / len(worker_ids)
+        recorder_dict["ResultsSkippedFrac"] = frac_results_skipped
+        recorder_dict["ObCount"] = ob_count_this_batch
 
-        tlogger.record_tabular("TimeElapsedThisIter", step_tend - step_tstart)
-        tlogger.record_tabular("TimeElapsed", step_tend - tstart)
+        recorder_dict["TimeElapsedThisIter"] =  step_tend - step_tstart
+        recorder_dict["TimeElapsed"] =  step_tend - tstart
+        for k,v in recorder_dict.items():
+            tlogger.record_tabular(k, v)
         tlogger.dump_tabular()
 
         gens_so_far += 1
+        if first_iteration:
+            with open(results_file_name, 'w+') as f:
+                writer = csv.writer(f)
+                writer.writerow(recorder_dict.keys())
+
+        with open(results_file_name, 'a+') as f:
+            writer = csv.writer(f)
+            writer.writerow([recorder_dict[s] for s in recorder_dict.keys()])
+
+
         if config.snapshot_freq != 0 and curr_task_id % config.snapshot_freq == 0:
-        #if config.snapshot_freq != 0:
             import os.path as osp
-            filename = 'snapshot_iter{:05d}_rew{}.h5'.format(
+            filename = '{}/snapshot_iter{:05d}_rew{}.h5'.format(
+                log_dir,
                 curr_task_id,
                 np.nan if not eval_rets else int(np.mean(eval_rets))
             )
@@ -344,6 +359,7 @@ def run_master(master_redis_cfg, log_dir, exp):
             #pickle.dump(training_goals, open('goals.pkl','wb'))
             tlogger.log('Saved snapshot {}'.format(filename))
 
+        first_iteration = False
 
 def rollout_and_update_ob_stat(policy, env, timestep_limit, rs, task_ob_stat, calc_obstat_prob):
     if policy.needs_ob_stat and calc_obstat_prob != 0 and rs.rand() < calc_obstat_prob:

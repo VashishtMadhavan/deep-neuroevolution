@@ -1,11 +1,12 @@
 #!/bin/sh
 NAME=exp_`date "+%m_%d_%H_%M_%S"`
-ALGO=$1
-EXP_FILE=$2
+EXP_NAME=$1
+ALGO=$2
+EXP_FILE=$3
 tmux new -s $NAME -d
 tmux send-keys -t $NAME 'export CUDA_VISIBLE_DEVICES=-1' C-m
 tmux send-keys -t $NAME '. scripts/local_env_setup.sh' C-m
-tmux send-keys -t $NAME 'python -m es_distributed.main master --master_socket_path /tmp/es_redis_master.sock --algo '$ALGO' --exp_file '"$EXP_FILE" C-m
+tmux send-keys -t $NAME 'python -m es_distributed.main master --log_dir '$EXP_NAME' --master_socket_path /tmp/es_redis_master.sock --algo '$ALGO' --exp_file '"$EXP_FILE" C-m
 tmux split-window -t $NAME
 tmux send-keys -t $NAME 'export CUDA_VISIBLE_DEVICES=-1' C-m
 tmux send-keys -t $NAME '. scripts/local_env_setup.sh' C-m
