@@ -249,9 +249,9 @@ class MujocoPolicy(Policy):
             ob_stat.set_from_init(init_mean, init_std, init_count=1e5)
 
 
-    def _get_pos(self, model):
-        mass = model.body_mass
-        xpos = model.data.xipos
+    def _get_pos(self, model, sim):
+        mass = np.expand_dims(model.body_mass, 1)
+        xpos = sim.data.xipos
         center = (np.sum(mass * xpos, 0) / np.sum(mass))
         return center[0], center[1], center[2]
 
@@ -280,7 +280,7 @@ class MujocoPolicy(Policy):
             if done:
                 break
 
-        x_pos, y_pos, _ = self._get_pos(env.unwrapped.model)
+        x_pos, y_pos, _ = self._get_pos(env.unwrapped.model, env.unwrapped.sim)
         rews = np.array(rews, dtype=np.float32)
         novelty_vector = np.array([x_pos, y_pos])
         if save_obs:

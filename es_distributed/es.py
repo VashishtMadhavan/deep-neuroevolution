@@ -285,8 +285,8 @@ def run_master(master_redis_cfg, log_dir, exp):
         policy.set_trainable_flat(theta)
    
         #getting training goals
-        roll_rews, roll_len, roll_nov_vec = policy.rollout(env, timestep_limit=None)
-        training_goals.append(roll_nov_vec[-1].copy())
+        #roll_rews, roll_len, roll_nov_vec = policy.rollout(env, timestep_limit=1000)
+        #training_goals.append(roll_nov_vec[-1].copy())
 
         # Update ob stat (we're never running the policy in the master, but we might be snapshotting the policy)
         if policy.needs_ob_stat:
@@ -305,7 +305,7 @@ def run_master(master_redis_cfg, log_dir, exp):
 
         tlogger.record_tabular("EvalEpRewMean", np.nan if not eval_rets else np.mean(eval_rets))
         tlogger.record_tabular("EvalEpRewMedian", np.nan if not eval_rets else np.median(eval_rets))
-        tlogger.record_tabular("EvalGoalDistance", np.linalg.norm(training_goals[-1] - env.unwrapped.goal_pos))
+        #tlogger.record_tabular("EvalGoalDistance", np.linalg.norm(training_goals[-1] - env.unwrapped.goal_pos))
         tlogger.record_tabular("EvalEpRewStd", np.nan if not eval_rets else np.std(eval_rets))
         tlogger.record_tabular("EvalEpLenMean", np.nan if not eval_rets else np.mean(eval_lens))
         tlogger.record_tabular("EvalPopRank", np.nan if not eval_rets else (
@@ -341,7 +341,7 @@ def run_master(master_redis_cfg, log_dir, exp):
             )
             assert not osp.exists(filename)
             policy.save(filename)
-            pickle.dump(training_goals, open('goals.pkl','wb'))
+            #pickle.dump(training_goals, open('goals.pkl','wb'))
             tlogger.log('Saved snapshot {}'.format(filename))
 
 
