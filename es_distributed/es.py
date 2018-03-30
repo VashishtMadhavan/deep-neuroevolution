@@ -15,7 +15,7 @@ Config = namedtuple('Config', [
     'calc_obstat_prob', 'eval_prob', 'snapshot_freq',
     'return_proc_mode', 'episode_cutoff_mode'
 ])
-Task = namedtuple('Task', ['params', 'ob_mean', 'ob_std', 'ref_batch', 'archive_batch', 'timestep_limit'])
+Task = namedtuple('Task', ['params', 'ob_mean', 'ob_std', 'ref_batch', 'timestep_limit'])
 Result = namedtuple('Result', [
     'worker_id',
     'noise_inds_n', 'returns_n2', 'signreturns_n2', 'lengths_n2',
@@ -159,7 +159,6 @@ def run_master(master_redis_cfg, log_dir, exp):
 
     if policy.needs_ref_batch:
         ref_batch = get_ref_batch(env, batch_size=128)
-        archive_batch = np.array(ref_batch)
         policy.set_ref_batch(ref_batch)
 
 
@@ -206,7 +205,6 @@ def run_master(master_redis_cfg, log_dir, exp):
             ob_mean=ob_stat.mean if policy.needs_ob_stat else None,
             ob_std=ob_stat.std if policy.needs_ob_stat else None,
             ref_batch=ref_batch if policy.needs_ref_batch else None,
-            archive_batch=archive_batch if policy.needs_ref_batch else None,
             timestep_limit=tslimit
         ))
         tlogger.log('********** Iteration {} **********'.format(curr_task_id))
